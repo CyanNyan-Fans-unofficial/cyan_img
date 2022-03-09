@@ -4,8 +4,10 @@ import * as mime from 'mime-types';
 // @ts-ignore
 import { base64ArrayBuffer } from "./base64ArrayBuffer";
 import { config as configSrc } from './config'
+import sanitize from 'sanitize-filename'
 
 let config = configSrc;
+
 
 // https://stackoverflow.com/questions/1349404/generate-random-string-characters-in-javascript
 function makeId(len: number): string {
@@ -72,9 +74,9 @@ async function fetchGitlabCreateCommit(actions: Array<any>, commitMessage: strin
 }
 
 async function validatePath(path: string) {
-  let rx = /\/?([a-z0-9]+)(\.[a-z0-9]+)?\/?$/i
-
-  let match = rx.exec(path);
+  let rx = /^\/?([a-z0-9]+)([.][a-z0-9]+)?\/?$/i
+  let rx2 = /^\/?([a-z0-9]+)\/([a-z0-9-_.~%]+)$/i
+  let match = rx.exec(path) || rx2.exec(path);
 
   if (!match) {
     return null;
@@ -99,7 +101,7 @@ function idToRepoFile(id: string) {
 async function createFileAction(id: string, file: string | Blob, base64: boolean = false) {
   let filename = idToRepoFile(id);
 
-  let payload: any = {
+  let payload: {[key: string]: string} = {
     action: 'create',
     file_path: filename
   }
@@ -144,7 +146,7 @@ async function handleRequest(event: FetchEvent, request: Request): Promise<Respo
   // Override hostname based on url
   config = _.defaults(config.overrides[host], config)
 
-  if (request.method == 'GET') {
+  if (request.method == 'GET' || request.method == 'HEAD') {
     let match = await validatePath(path);
 
     // Validate path
@@ -154,20 +156,45 @@ async function handleRequest(event: FetchEvent, request: Request): Promise<Respo
 
     // Check content type
     const ext = match[2] || '.txt';
-    const contentType = mime.contentType(ext);
-    if (!contentType) throw 404;
+    console.log(ext)
+    let contentType = mime.contentType(ext);
+    if (contentType === false) {
+      contentType = 'application/octet-stream';
+    }
 
-    // Handle caching
+    // Handle caching key
     let file = match[1];
     let cacheKey = new Request(new URL(`/${file}`, url.toString()).toString(), {
       headers: request.headers
     });
 
+    // Handle file name
+    let downloadName = null;
+    if (!ext.startsWith('.')) {
+      downloadName = sanitize(decodeURIComponent(ext));
+    }
+
+    // handle headers
+    let contentHeaders: HeadersInit = {
+      'content-type': contentType
+    }
+
+    let cacheHeaders: HeadersInit = {
+      'cache-control': 'public, max-age=31536000'
+    }
+
+    if (!_.isNull(downloadName)) {
+      contentHeaders['content-disposition'] = `attachment; filename="${downloadName}"`;
+    }
+
+    // Return cache if found
     let resp = await cache.match(cacheKey);
     if (resp) {
       console.log(`cache hit! match=${match[0]}`);
       let headers = new Headers(resp.headers);
-      headers.set('content-type', contentType);
+      headers.delete('content-disposition');
+      Object.entries(contentHeaders).forEach(
+          ([k, v]) => headers.set(k, v));
       return new Response(resp.body, {
         headers: headers,
         status: resp.status
@@ -180,18 +207,13 @@ async function handleRequest(event: FetchEvent, request: Request): Promise<Respo
 
     if (resp.ok) {
       resp = new Response(resp.body, {
-        headers: {
-          'content-type': contentType,
-          'cache-control': 'public, max-age=31536000'
-        },
+        headers: { ...contentHeaders, ...cacheHeaders },
         status: resp.status
       });
     } else {
       resp = new Response(null, {
-        status: 404,
-        headers: {
-          'cache-control': 'public, max-age=31536000'
-        }
+        headers: { ...cacheHeaders },
+        status: 404
       });
     }
 
@@ -236,11 +258,15 @@ async function handleRequest(event: FetchEvent, request: Request): Promise<Respo
   }
 
   if (request.method == 'PUT') {
+    let fileName = path.split('/')[2];
     let data = await request.blob();
 
     let id = await generateId();
     let actions = [await createFileAction(id, data, endpointType == 'base64')];
     let filePath = createPathFromFile(id);
+    if (fileName !== undefined) {
+      filePath += '/' + fileName;
+    }
     let newUrl = new URL(filePath, url.toString()).toString();
 
     let resp = await fetchGitlabCreateCommit(actions, `Uploaded by ${ip}`);

@@ -1,11 +1,11 @@
 {
   "extends": "@tsconfig/node16/tsconfig.json",
-  "allowJs": true,
   "include": ["src/**/*"],
   "exclude": ["node_modules", "**/*.spec.ts"],
   "compilerOptions": {
     "types": ["@cloudflare/workers-types"],
-    "sourceMap": true
+    "sourceMap": true,
+    "esModuleInterop": true
   },
   "strict": true
 }
