@@ -75,7 +75,7 @@ async function fetchGitlabCreateCommit(actions: Array<any>, commitMessage: strin
 
 async function validatePath(path: string) {
   let rx = /^\/?([a-z0-9]+)([.][a-z0-9]+)?\/?$/i
-  let rx2 = /^\/?([a-z0-9]+)\/([a-z0-9-_.~%]+)$/i
+  let rx2 = /^\/?([a-z0-9]+)\/([a-z0-9-_.!~*'()#%]+)$/i
   let match = rx.exec(path) || rx2.exec(path);
 
   if (!match) {
@@ -140,11 +140,11 @@ async function handleRequest(event: FetchEvent, request: Request): Promise<Respo
   let host = url.hostname;
   let cache = caches.default;
 
-  let pathBegin = path.split('/')[1];
-  let endpointType = config.uploadKeys[pathBegin]
-
   // Override hostname based on url
   config = _.defaults(config.overrides[host], config)
+
+  let pathBegin = path.split('/')[1];
+  let endpointType = config.uploadKeys[pathBegin]
 
   if (request.method == 'GET' || request.method == 'HEAD') {
     let match = await validatePath(path);
@@ -221,7 +221,7 @@ async function handleRequest(event: FetchEvent, request: Request): Promise<Respo
     return resp;
   }
 
-  if (endpointType === undefined) {
+  if (endpointType === undefined && !config.uploadAllowInsecure) {
     throw 500;
   }
   let ip = request.headers.get('cf-connecting-ip');
@@ -258,13 +258,13 @@ async function handleRequest(event: FetchEvent, request: Request): Promise<Respo
   }
 
   if (request.method == 'PUT') {
-    let fileName = path.split('/')[2];
+    let fileName = _.last(path.split('/'));
     let data = await request.blob();
 
     let id = await generateId();
     let actions = [await createFileAction(id, data, endpointType == 'base64')];
     let filePath = createPathFromFile(id);
-    if (fileName !== undefined) {
+    if (!_.isEmpty(fileName)) {
       filePath += '/' + fileName;
     }
     let newUrl = new URL(filePath, url.toString()).toString();
