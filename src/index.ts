@@ -183,6 +183,16 @@ async function handleRequest(event: FetchEvent, request: Request): Promise<Respo
       'cache-control': 'public, max-age=31536000'
     }
 
+    let securityHeaders: HeadersInit = {
+      'Strict-Transport-Security': 'max-age=31536000',
+      'Content-Security-Policy': "default-src 'none'; img-src 'self'; script-src 'none'; style-src 'self'",
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'X-XSS-Protection': '1; mode=block',
+      'Access-Control-Allow-Origin': url.origin
+    }
+
     if (!_.isNull(downloadName)) {
       contentHeaders['content-disposition'] = `attachment; filename="${downloadName}"`;
     }
@@ -207,12 +217,12 @@ async function handleRequest(event: FetchEvent, request: Request): Promise<Respo
 
     if (resp.ok) {
       resp = new Response(resp.body, {
-        headers: { ...contentHeaders, ...cacheHeaders },
+        headers: { ...contentHeaders, ...cacheHeaders, ...securityHeaders },
         status: resp.status
       });
     } else {
       resp = new Response(null, {
-        headers: { ...cacheHeaders },
+        headers: { ...cacheHeaders, ...securityHeaders },
         status: 404
       });
     }
